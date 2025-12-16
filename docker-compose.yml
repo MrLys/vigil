@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  vigil:
+    build: .
+    environment:
+      - LOKI_URL=http://loki:3100
+      - LOKI_POLL_INTERVAL=30s
+      - LOKI_LOOKBACK=5m
+      - GITEA_URL=http://gitea:3000
+      - GITEA_TOKEN=${GITEA_TOKEN}
+      - GITEA_OWNER=${GITEA_OWNER}
+      - GITEA_REPO=${GITEA_REPO:-error-issues}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    depends_on:
+      gitea:
+        condition: service_healthy
+    networks:
+      - issue-tracker
+    restart: unless-stopped
+
+  gitea:
+    image: gitea/gitea:1.21
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__server__ROOT_URL=${GITEA_ROOT_URL:-http://localhost:3000/}
+      - GITEA__server__DOMAIN=${GITEA_DOMAIN:-localhost}
+    volumes:
+      - gitea-data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - issue-tracker
+    restart: unless-stopped
+
+networks:
+  issue-tracker:
+    driver: bridge
+
+volumes:
+  gitea-data:

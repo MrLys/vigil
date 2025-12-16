@@ -1,0 +1,61 @@
+name: Build Backend
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - "**/*.go"
+            - "go.mod"
+            - "go.sum"
+            - "Dockerfile"
+            - ".github/workflows/build-backend.yml"
+    pull_request:
+        branches:
+            - master
+        paths:
+            - "**/*.go"
+            - "go.mod"
+            - "go.sum"
+            - "Dockerfile"
+    workflow_dispatch:
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v4
+              with:
+                  go-version: "1.21"
+                  cache-dependency-path: go.sum
+
+            - name: Build and test
+              run: |
+                  go mod download
+                  go build -v ./...
+
+            - name: Log in to Amazon ECR
+              if: github.ref == 'refs/heads/master'
+              env:
+                  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_ACCESS_SECRET }}
+                  AWS_REGION: eu-north-1
+              run: |
+                  aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 628406611447.dkr.ecr.eu-north-1.amazonaws.com/vigil
+
+            - name: Build Docker image
+              run: docker build -t vigil:latest .
+
+            - name: Tag Docker image
+              if: github.ref == 'refs/heads/master'
+              run: |
+                  docker tag vigil:latest 628406611447.dkr.ecr.eu-north-1.amazonaws.com/vigil:latest
+
+            - name: Push to ECR
+              if: github.ref == 'refs/heads/master'
+              run: |
+                  docker push 628406611447.dkr.ecr.eu-north-1.amazonaws.com/vigil:latest

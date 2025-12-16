@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod tidy:*)",
+      "Bash(go build:*)"
+    ]
+  },
+  "disabledMcpjsonServers": [
+    "sage-tripletex-mcp-production",
+    "sage-tripletex-mcp-development",
+    "sage-tripletex-mcp-local"
+  ]
+}
