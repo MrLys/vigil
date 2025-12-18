@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -215,35 +216,12 @@ func (c *Client) ReopenIssue(issueNumber int64) error {
 
 // EnsureLabel ensures a label exists, creating it if necessary
 func (c *Client) EnsureLabel(name, color string) error {
-	// First check if label exists
-	reqURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/labels", c.baseURL, c.owner, c.repo)
-
-	req, err := http.NewRequest("GET", reqURL, nil)
-	if err != nil {
+	// Just try to create - Gitea returns 409 if it already exists
+	err := c.createLabel(name, color)
+	if err != nil && !strings.Contains(err.Error(), "409") {
 		return err
 	}
-	c.setAuth(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to get labels: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var labels []Label
-	if err := json.NewDecoder(resp.Body).Decode(&labels); err != nil {
-		return fmt.Errorf("failed to decode labels: %w", err)
-	}
-
-	// Check if label exists
-	for _, l := range labels {
-		if l.Name == name {
-			return nil // Label exists
-		}
-	}
-
-	// Create label
-	return c.createLabel(name, color)
+	return nil
 }
 
 // createLabel creates a new label
