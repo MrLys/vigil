@@ -55,9 +55,13 @@ type Label struct {
 
 // CreateIssueRequest is the request body for creating an issue
 type CreateIssueRequest struct {
-	Title  string   `json:"title"`
-	Body   string   `json:"body"`
-	Labels []string `json:"labels,omitempty"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// IssueLabelsRequest is the request body for adding labels to an issue
+type IssueLabelsRequest struct {
+	Labels []int64 `json:"labels"`
 }
 
 // CreateCommentRequest is the request body for creating a comment
@@ -109,12 +113,11 @@ func (c *Client) SearchIssues(labelName string) ([]Issue, error) {
 	return issues, nil
 }
 
-// CreateIssue creates a new issue
-func (c *Client) CreateIssue(title, body string, labels []string) (*Issue, error) {
+// CreateIssue creates a new issue and optionally adds labels
+func (c *Client) CreateIssue(title, body string, labelNames []string) (*Issue, error) {
 	reqBody := CreateIssueRequest{
-		Title:  title,
-		Body:   body,
-		Labels: labels,
+		Title: title,
+		Body:  body,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -138,8 +141,8 @@ func (c *Client) CreateIssue(title, body string, labels []string) (*Issue, error
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Gitea returned status %d: %s", resp.StatusCode, string(body))
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Gitea returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var issue Issue
@@ -147,7 +150,95 @@ func (c *Client) CreateIssue(title, body string, labels []string) (*Issue, error
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	// Add labels if specified
+	if len(labelNames) > 0 {
+		if err := c.AddLabelsByName(issue.Number, labelNames); err != nil {
+			// Log but don't fail - issue was created successfully
+			return &issue, fmt.Errorf("issue created but failed to add labels: %w", err)
+		}
+	}
+
 	return &issue, nil
+}
+
+// AddLabelsByName adds labels to an issue by label names
+func (c *Client) AddLabelsByName(issueNumber int64, labelNames []string) error {
+	// Get all labels to find IDs
+	labels, err := c.GetLabels()
+	if err != nil {
+		return err
+	}
+
+	// Map names to IDs
+	labelIDs := make([]int64, 0)
+	for _, name := range labelNames {
+		for _, label := range labels {
+			if label.Name == name {
+				labelIDs = append(labelIDs, label.ID)
+				break
+			}
+		}
+	}
+
+	if len(labelIDs) == 0 {
+		return nil // No matching labels found
+	}
+
+	// Add labels to issue
+	reqBody := IssueLabelsRequest{Labels: labelIDs}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/labels", c.baseURL, c.owner, c.repo, issueNumber)
+	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return err
+	}
+	c.setAuth(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to add labels: %s", string(body))
+	}
+
+	return nil
+}
+
+// GetLabels returns all labels in the repository
+func (c *Client) GetLabels() ([]Label, error) {
+	reqURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/labels", c.baseURL, c.owner, c.repo)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	c.setAuth(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get labels: %s", string(body))
+	}
+
+	var labels []Label
+	if err := json.NewDecoder(resp.Body).Decode(&labels); err != nil {
+		return nil, err
+	}
+
+	return labels, nil
 }
 
 // AddComment adds a comment to an issue
