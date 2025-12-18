@@ -98,7 +98,7 @@ func (p *Processor) poll() {
 
 	// Query for error logs - use line filter first (more reliable), then parse JSON
 	// The Go code will do final filtering via IsError()
-	query := `{job=~".+"} |~ "ERROR|\"status\":5[0-9]{2}" | json`
+	query := `{container=~".+"} |~ "ERROR|\"status\":5[0-9]{2}" | json`
 
 	entries, err := p.lokiClient.QueryRange(query, start, now, 1000)
 	if err != nil {
