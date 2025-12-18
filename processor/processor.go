@@ -96,8 +96,9 @@ func (p *Processor) poll() {
 	now := time.Now()
 	start := p.lastPoll
 
-	// Query for error logs
-	query := `{job=~".+"} | json | level = "ERROR" or status >= 500`
+	// Query for error logs - use line filter first (more reliable), then parse JSON
+	// The Go code will do final filtering via IsError()
+	query := `{job=~".+"} |~ "ERROR|\"status\":5[0-9]{2}" | json`
 
 	entries, err := p.lokiClient.QueryRange(query, start, now, 1000)
 	if err != nil {
@@ -108,17 +109,25 @@ func (p *Processor) poll() {
 	p.lastPoll = now
 
 	if len(entries) == 0 {
+		log.Printf("No entries found from Loki query")
 		return
 	}
 
-	log.Printf("Processing %d error log entries", len(entries))
+	log.Printf("Found %d entries from Loki, filtering for errors...", len(entries))
 
+	errorCount := 0
 	for _, entry := range entries {
 		if entry.IsError() {
+			errorCount++
+			log.Printf("Processing error: level=%s status=%d msg=%s", entry.Level, entry.Status, entry.Message)
 			if err := p.processEntry(entry); err != nil {
 				log.Printf("Error processing log entry: %v", err)
 			}
 		}
+	}
+
+	if errorCount > 0 {
+		log.Printf("Processed %d error entries", errorCount)
 	}
 }
 
